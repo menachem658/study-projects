@@ -1,0 +1,328 @@
+---
+title: "Lab 3 ML"
+author: "Menachem Sokolik and Valeria Lerman"
+date: "27 5 2021"
+output:
+    rmarkdown::github_document:
+    theme: journal
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+```{r, cache=TRUE}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+knitr::opts_chunk$set(warning=FALSE)
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, results==hide, warning=FALSE, include=FALSE}
+library(tidyverse) # This includes dplyr, stringr, ggplot2, .. 
+library(data.table)
+require(tree)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+```
+### Classification Tree
+#### task 1
+
+```{r}
+dat <- read.table("spam.data")
+```
+
+#### task 2.b
+
+```{r}
+dim <- dim(dat)
+cat(paste0("In our data table there are ", dim[1], paste0(" rows"), paste0(" and ", dim[2], paste0(" columns."))))
+```
+
+#### task 2.c
+
+```{r}
+dat$V58 = as.factor(ifelse(dat$V58 == 1 , "yes", "no"))
+str(dat)
+```
+
+It can be seen, that the columns 1-57 represent variables which explain our y. Column 58 represents the result variables y, and they are binary - so we changed the 0 and 1 values into yes and no string variables, which represents whether the current variable is spam or not.
+So for each row that represents a different observation, we can tell whether the result Y is spam or not according to the columns.
+
+#### task 3-Subset your data into train and test
+
+```{r}
+dat[c(1:57)] <- lapply(dat[c(1:57)], function(x) c(scale(x))) #scaling
+set.seed(2) # Set Seed so that same sample can be reproduced in future also
+# Now Selecting 70% of data as sample from total 'n' rows of the data  
+sample <- sample.int(n = nrow(dat), size = floor(.7*nrow(dat)), replace = F)
+train <- dat[sample, ]
+test  <- dat[-sample, ]
+```
+
+#### task 4
+
+```{r}
+p <- dim[2]
+train_x <- train[, -p] #predictors only
+train_y <- train[, p] #true test classification
+
+test_x <- test[, -p] #predictors only
+test_y <- test[, p] #true test classification
+```
+
+#### task 5.a-d.
+Then fit an unpruned regression tree to the training data.
+
+```{r}
+#run tree model
+tree_model <- tree(V58~., data = train)
+summary(tree_model)
+```
+
+
+
+We see this tree has 14 terminal nodes and a Misclassification error rate 0.0941.
+
+```{r}
+plot(tree_model) #visualize tree
+text(tree_model, pretty=0, cex=0.6)
+title(main = "Pruned Classification Tree")
+```
+
+We created a pruned clasification tree.
+In every decision point the function computes the splitting number according to the RSS minimization criterion we learned in the lecture - for every decission point, if our vector value is smaller than the splitting number - then we go left, otherwise - we go right. 
+The function does it recursively over and over according to the best value we wiil find later for the B, in order to get the best pruned tree possible.
+But we should be cauchious with the number of decission points, because if we go too deep than there will be over fitting on the variables, so we will find later what is the best B value for which we'll prune the tree.
+ 
+#### task 5.e.
+
+```{r}
+tree_preds <- predict(tree_model, test_x, type = "class") #predict on the test set
+summary(tree_preds)
+```
+
+#### task 5.f.
+
+```{r}
+#check accuracy of predictions
+table(predicted = tree_preds, actual = test_y) #confusion matrix
+mean(tree_preds == test_y) #accuracy
+```
+
+It can be noticed that our prediction was correct in 1228 of the cases. However, we had 2 types of errors: we predicted false negative for 80 cases and false positive for 73 cases. In total, we predicted wrong for 153 cases.
+
+predict on the train set to see overfitting if we run it on train.
+
+```{r}
+tree_train_preds <-  predict(tree_model, train_x, type = "class") #predict on the train set
+table(predicted = tree_train_preds, actual = train_y) # train confusion
+mean(tree_train_preds == train_y) #accuracy
+```
+
+Here it is easy to see that the tree has been over-fit. The train set performs much better than the test set.
+
+#### task 5.h-j.
+
+We will now use cross-validation to find a tree by considering trees of different sizes which have been pruned from our original tree.
+As with classification trees, we can use cross-validation to select a good pruning of the tree.
+
+```{r}
+set.seed(3)
+tree_model_cv = cv.tree(tree_model) # As we were instructed
+tree_model_cv
+
+par(mfrow = c(1, 2))
+plot(tree_model_cv$size, tree_model_cv$dev, type="b") # plot deviance as function of sizs
+tree.min <- which.min(tree_model_cv$dev) # index of tree with minimum error
+tree_model_cv$size[tree.min] # number of terminal nodes in that tree
+points(tree_model_cv$size[tree.min] , tree_model_cv$dev[tree.min], col = "red", cex = 2, pch = 20)
+
+plot(tree_model_cv$size, sqrt(tree_model_cv$dev / nrow(train)), type = "b",
+     xlab = "Tree Size", ylab = "CV-RMSE") # plot deviance as function of CV-RMSE
+```
+
+In this case, the tree size that minimizes the corss-validation error `r tree_model_cv$size[tree.min]` is selected by cross-validation (the point in red).
+
+#### task 5.h-j.
+
+We will now use cross-validation to find a tree by considering trees of different sizes which have been pruned from our original tree with `prune.misclass` function.
+
+```{r}
+set.seed(3)
+tree_cv = cv.tree(tree_model, FUN = prune.misclass)
+min_idx = which.min(tree_cv$dev) # index of tree with minimum error
+tree_cv$size[min_idx] # number of terminal nodes in that tree
+tree_cv$dev / length(sample) # misclassification rate of each tree
+par(mfrow = c(1, 2))
+plot(tree_cv) # default plot
+tree.min <- which.min(tree_cv$dev)
+points(tree_cv$size[min_idx], tree_cv$dev[tree.min], col = "red", cex = 2, pch = 20)
+plot(tree_cv$size, tree_cv$dev / nrow(train), type = "b",
+     xlab = "Tree Size", ylab = "CV Misclassification Rate") # better plottree.min
+```
+
+
+
+According to the graphs, the best value for K is 14, it can be seen by the red dot. That means that if we prune our tree with k=14, we get the best accurancy. However, note that according to the graph, we can get the same percentage of accurancy even for 9-13 values of K, so we would prefer to choose k=9 for our model. But if we choose a smaller value, then of cauese we will get a lower percentage. It can be checked and compared using the function of mission 5.1.
+
+
+It appears that a tree of size 14 but the same in size 9 has the fewest misclassifications of the considered trees, via cross-validation.
+
+We use prune.misclass() to obtain that tree from our original tree, and plot this smaller tree.
+
+#### task 5.l.
+```{r}
+pruned_tree <- prune.misclass(tree_model, best = 9) # prune tree to have 14 leaves
+plot(pruned_tree) #visualize tree
+text(pruned_tree, pretty=0, cex=0.6)
+
+#predict on the test set
+tree_preds_l <- predict(pruned_tree, test_x, type = "class")
+summary(tree_preds_l)
+
+#check accuracy of predictions
+table(predicted = tree_preds_l, actual = test_y) #confusion matrix
+mean(tree_preds_l == test_y) #accuracy
+```
+
+It can be seen in this tree that we used the optimal B value for pruning the tree.
+In every leaf at the bottom of the tree you can see what was the decission - whether this is a spam or not according to the given information in the upper decission points.
+
+### Random Forest
+#### task 6.b-c
+```{r}
+rf_model <- randomForest(V58~., data =train) #run random forest
+rf_pred <- predict(rf_model, newdata = test_x) #predict on the test set
+
+#check accuracy of predictions
+table(predicted = rf_pred, actual = test_y) #confusion matrix
+mean(rf_pred == test_y) #accuracy
+```
+
+we can see that if we use the method of Random Forest we can get higher accuracy from regular tree method. in Random Forest the accuracy is `r mean(rf_pred == test_y)`, in  regular tree method the accuracy is `r mean(tree_preds == test_y)`.
+
+### Regression.
+### Trees.
+#### task 7.a-b 
+
+```{r}
+load("CA_samp.Rdata")
+df <- data.frame(CA_samp)
+df[c(1:528)] <- lapply(df[c(1:528)], function(x) c(scale(x))) #scaling
+
+set.seed(123) # Set Seed so that same sample can be reproduced in future also
+# Now Selecting 70% of data as sample from total 'n' rows of the data  
+sample.7 <- sort(sample.int(n = nrow(df), size = floor(.7*nrow(df)), replace = F))
+train.7 <- df[sample.7, ]
+test.7  <- df[-sample.7, ]
+
+q <- dim[2]
+train_x.7 <- train.7[, -q] #predictors only
+train_y.7 <- train.7[, q] #true test classification
+
+test_x.7 <- test.7[, -q] #predictors only
+test_y.7 <- test.7[, q] #true test classification
+
+train_df <- train_x.7
+train_df$y <- train_y.7
+test_df <- test_x.7
+test_df$y <- test_y.7
+```
+
+#### task 7.c
+
+```{r}
+tree_mod <- tree(y~., data = train_df)
+summary(tree_mod)
+
+plot(tree_mod) #visualize tree
+text(tree_mod, pretty=0,cex=0.6)
+title(main = "Pruned Regression Tree")
+
+tree_p <- predict(tree_mod, newdata = test_df) #predict on the test set
+summary(tree_p)
+```
+
+As with classification trees, we can use cross-validation to select a good pruning of the tree.
+According to the tree graph, it can be noted that the tree contains 4 levels. 
+In  the next graph it can be seen that indeed we should prune our tree after 4 levels, in order not to create over-fitting. 
+In every decision point the function computes the splitting number according to the RSS minimization criterion we learned in the lecture - for every decission point, if our vector value is smaller than the splitting number - then we go left, otherwise - we go right. 
+The function does it recursively over and over according to the best value we computed - B=4, in order to get the best pruned tree possible.
+
+root mean squared error (RMSE)
+
+```{r}
+sqrt(mean((tree_p-test_y.7)^2))
+```
+
+The root mean squared error (RMSE) is `r sqrt(mean((tree_p-test_y.7)^2))`. Note that we got this value after scalling our data.
+
+
+```{r}
+set.seed(18)
+tree_mod_cv = cv.tree(tree_mod)
+plot(tree_mod_cv$size, sqrt(tree_mod_cv$dev / nrow(train_df)), type = "b",
+     xlab = "Tree Size", ylab = "CV-RMSE")
+```
+
+While the tree of size 4 does have the lowest RMSE, we’ll prune to a size of 3 as it seems to perform just as well. (Otherwise we would not be pruning.) The pruned tree is, as expected, smaller and easier to interpret.
+
+```{r}
+tree_mod_prune = prune.tree(tree_mod, best = 3)
+tree_p_prune <- predict(tree_mod_prune, newdata = test_df) #predict on the test set
+summary(tree_p_prune)
+```
+
+Let’s compare this regression tree to an additive linear model and use RMSE as our metric.
+
+```{r}
+sqrt(mean((tree_p_prune-test_y.7)^2))
+```
+
+The root mean squared error (RMSE) is 0.9926563. Note that we got this value after scaling our data.
+ 
+#### task 8. Random Forest
+
+```{r}
+set.seed(42)
+rf_model.8 <- randomForest(y~., data = train_df, mportance= T) #run random forest
+rf_pred.8 <- predict(rf_model.8, newdata = test_x.7) #predict on the test set
+```
+
+root mean squared error (RMSE)
+
+```{r}
+sqrt(mean((rf_pred.8-test_y.7)^2)) #find the rmse
+```
+
+The root mean squared error (RMSE) is `r sqrt(mean((rf_pred.8-test_y.7)^2))` is lower from not a Random Forest regression.
+This happens because in every new tree which is created by the function, we include exactly the same fcomplete number of variables as the original data, but the data that appears in every tree is chosen randomly. This means, that the number of appearances for every variable in the data explains its contribution to the variance, and this is the reason that we get a lower RMSE (and a higher accuracy) by using random forest.
+
+importance
+```{r}
+set.seed(42)
+rf_model.8 <- randomForest(y~., data = train_df, mportance = TRUE) #run random forest
+variable.importance <- data.frame(rf_model.8$importance)
+top.20 <-variable.importance %>%  top_n(20, IncNodePurity)
+top.20 # The twenty largest variables.
+```
+ 
+```{r}
+imp<-importance(rf_model.8)
+vars<-dimnames(imp)[[1]]
+imp<-data.frame(vars=vars,imp=as.numeric(imp[,1]))
+imp<-imp[order(imp$imp,decreasing=T),]
+varImpPlot(rf_model.8, cex=0.6,main='Variable Importance Plot')
+plot(rf_model.8, cex=0.6,main='Error vs No. of trees plot')
+```
+
+In the upper graph we can see the contribution of each type of household and medianincome variables to the results of our model.
+The information in the graph is arranged in such a way that you can see easily which variables contribute the most to our model and which contribute the least.
+
+The second graph shows the connection between the error percentage and the number of trees created by the random forest method.
+According to the graph, the error rate is the highest when around 60-70 trees are created, and then the rate decreases when the number of trees grows to 100.
+If the number of trees is higher than 100, the error rate stays around 0.08, which suits what we learned during the lectures.
+
+

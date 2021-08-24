@@ -1,0 +1,542 @@
+---
+title: "Final lab in machine learning 57690 "
+author: "Menachem Sokolik and Valeria Lerman"
+date: "16 7 2021"
+output:
+ html_document: 
+   rmarkdown ::html_document: 
+   theme: journal 
+   toc: true 
+   toc_depth: 4
+   df_print: paged
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Initialize
+Load the imager package and use the following chunk in order to load an image.
+
+## Libraries
+```{r, cache=TRUE}
+library(imager)
+library(pls)
+#Optimal K
+library(factoextra)
+
+#libraries for random forest classification
+library(tuneRanger)
+library(mlr)
+library(OpenML)
+library(randomForest)
+
+library(ISLR) 
+library(ggplot2) 
+library(reshape2) 
+library(plyr) 
+library(dplyr) 
+#KNN
+library(class)
+library(gplots)
+library(lattice)
+library(caret)
+```
+
+```{r, cache = TRUE}
+# Set your working directory
+#setwd('C:/Users/menac/OneDrive/Desktop/57690 Machine Learning Methods/final/')
+im <- load.image("C://Users//VALER//Desktop//Cezanne.jpg")
+# A painting!
+plot(im)
+```
+
+And now let us look at the object we got. Its shape is
+```{r, cache = TRUE}
+dim(im)
+```
+
+Last is the spectrum of the picture. It has a value of 3, representing RGB colors.
+
+```{r, cache = TRUE}
+print('head(5):')
+im %>% as.data.frame() %>% head(5)
+```
+
+ we first need to standardize our paintings into a fixed size.
+ 
+```{r cache = TRUE}
+im2 <- resize(im, 500 ,500    ,1    ,3)
+plot(im2)
+```
+ After reshaping our images, we could turn the three matrices into a vector, as the following image suggests.
+ 
+```{cache = TRUE}
+im3 <- as.data.frame(im2)
+image_Xs = im3$value
+print(image_Xs[1:15])
+``` 
+
+## loading the data
+```{r ,cache = TRUE}
+load("X_train.Rdata")
+load("X_test.Rdata")
+x.train <- data.frame(Xtrain1)
+x.test <- data.frame(Xtest)
+y_train<- read.csv('y_train.csv')
+y_test<- read.csv('y_test.csv')
+``` 
+The following table summarizes the nationalities of the painters in our sample
+ 
+```{r, cache = TRUE}
+painters <- c("Cezanne", "Degas", "Gauguin", "Hassam", "Matisse", "Monet", "Pissarro", "Renoir", "Sargent", "VanGogh")
+nationalities <- c("French", "French", "French", "US", "French", "French", "French", "French", "US", "Dutch")
+
+df <- as.data.frame(cbind(painters, nationalities))
+df
+```
+
+##  The data
+```{r, cache = TRUE}
+head(names(x.train),10)
+dim(x.train)
+```
+3983 observations and 30002 parameters.
+
+
+# PART 1:
+
+## clustering by the optimal k (kmeans)
+
+In this part, we preferred to use PCA model in order to reduce dimensions of our data.
+According to lecture 3, this approach projects p predictors into n- dimensional area, and n must be smaller than p.
+We use the projections to fit a linear regression model.
+
+PCA is actually an orthogonal linear transformation of our data into a lower dimensional space, so that the biggest variance of each projection stands on the first principal component.
+
+In the PCA model, it is very important to scale the variables if they are measured in different units, which means they also have different variances.
+
+```{r eval=FALSE}
+#using prcomp in order to reduce the number of dimensions  (according to lab 4)
+x_train <- prcomp(x.train[,-c(1,2)], scale = TRUE)
+
+#In the PCA model, it is very important to scale the variables if they are measured in different units, which means they also have different variances.
+
+
+#saving the results in csv files in order not to run the prcomp again, it takes a huge amount of time
+
+write.csv(data.frame(x_train$x),"C:\\Users\\menac\\OneDrive\\Desktop\\57690 Machine Learning Methods\\final\\x_train$x.csv", row.names = FALSE)
+
+write.csv(data.frame(x_train$sdev),"C:\\Users\\menac\\OneDrive\\Desktop\\57690 Machine Learning Methods\\final\\x_train$sdev.csv", row.names = FALSE)
+
+#predict x.test using 300 pcs, after several attempts it gives the best accurancy
+x_test.pca <- predict(x_train, newdata = x.test)[,1:300]
+write.csv(data.frame(x_test.pca),"C:\\Users\\menac\\OneDrive\\Desktop\\57690 Machine Learning Methods\\final\\x_test.pca.csv", row.names = FALSE)
+```
+
+Note that after using the PCA function, we reduced drastically the dimensions of our data to 3983 x 3983 (with the smallest possible lost of the explained data)
+
+```{r, cache = TRUE}
+#reading the files to use them instead of running the function every time.
+sdev <-  read.csv("x_train$sdev.csv")
+```
+
+```{r, cache = TRUE}
+x_train_x <- read.csv("x_train$x.csv")
+```
+
+```{r, cache = TRUE}
+#predict x.test using 300 pcs, after several attempts it gives the best accurancy
+x_test.pca <- read.csv("x_test.pca.csv")
+```
+
+
+```{r, cache = TRUE}
+pop.var.explained <- ((sdev^2/sum(sdev^2))) #  normalizing by the sum of all the PCs' variance
+var.explained <- as.data.frame(pop.var.explained[order(pop.var.explained, decreasing = TRUE),]) 
+#ordering the data frame in a decreasing order according to the explained variance.
+colnames(var.explained) <- c("pop")
+```
+
+using the cumsum function in order to find the cumulative explained variance for every observation.
+```{r, cache = TRUE}
+cpvar <- cumsum(data.frame(cp=c(1:length(var.explained)),`prop`=var.explained*100))
+cpvar$cp <- c(1:3983)
+cpvar
+```
+
+
+creating a plot of cumulative explained variance proportion explained by number of PC:
+Note that we will need this plot in order to find how many pcs we should use in order to explain our data - we want to reduce their number as possible without affecting the results, in order to decrease the complexity of the model.
+
+```{r, cache = TRUE}
+plot(cpvar$cp, cpvar$pop,xlab="PC", ylab= "variance",main="cumulative proportion of variance explained by the PC", pch=3)
+```
+
+According to the plot, we can see that the  variance explained by pc of 80% is good enough, so the pc number we use is 288.
+
+Intuitively, since the number of nationalities of the painters is 3, we can assume that it'd be better to assign the observations to 3 clusters:
+
+```{r, cache = TRUE}
+k_mean2 <- kmeans(x_train_x, 3)
+```
+
+We prefer the kmeans function because our mission is to deal with unclasified data. 
+
+```{r, cache = TRUE}
+plot(x_train_x[,1],x_train_x[,2], xlab = "PC1", ylab="PC2", main = "K means", pch=8, col=k_mean2$cluster+2)
+```
+
+However, if we use the built in function to find the optimal number of clusters, we find a different value...
+
+Finding the optimal value of k for clustering
+```{r, cache = TRUE}
+fviz_nbclust(x_train_x, FUN=kmeans, method="silhouette")
+```
+
+Using kmeans function
+```{r, cache = TRUE}
+k_mean <- kmeans(x_train_x, 2)
+```
+
+Extract the withinss-cluster sum of squares
+```{r, cache = TRUE}
+knitr::kable(k_mean$withinss, caption = "k_mean withinss",col.names = NULL)
+```
+The within-point scatter can be written as:
+$\sum _{k=1}^k\:\:n_k\sum \:_{c\left(i\right)=k}^{ }\:\:\left|| x_i-\overline{x_k}\right||^2$
+
+Extract the between-cluster sum of squares
+```{r, cache = TRUE}
+knitr::kable(k_mean$betweenss, caption = "k_mean betweenss",col.names = NULL)
+```
+The similarity measure for any two observations is defined by the squared Euclidean distance.
+
+```{r,cache = TRUE}
+data.frame(cluster=k_mean$cluster)
+```
+
+plotting the observations divided to 2 clusters according to optimal number k we found
+```{r,cache = TRUE}
+plot(x_train_x[,1],x_train_x[,2], xlab = "PC1", ylab="PC2", main = "K means", pch=8, col=k_mean$cluster+3)
+```
+
+Even though the clusters are very close to each other, it can be seen quite clearly which cluster each observation belongs to, so the clustering proccess is a success.
+
+
+A different way to prove that the optimal k is equal to 2:
+
+creating a plot using fviz_nbclust function to find the optimal k value
+```{r,cache = TRUE}
+dist_dat <- dist(x_train_x[,1:300])
+hc_modle <- hclust(dist_dat,method = "complete")
+
+fviz_nbclust(x_train_x[,1:300], FUN=hcut, method="silhouette")
+cutting <- cutree(hc_modle,2)
+knitr::kable(table(cutting, y_train[,2]), caption = "k_mean betweenss")
+```
+
+As it can be seen from the plot above, the optimal number of clusters is really 2.
+
+Why we chose to fit tree model instead of linear model to our data?
+
+Classification to clusters fits better our data than a linear model, so its displayed graphically better and its very easy to explain the plot.
+But we should remember that trees are very sensitive to changes in the data while using them.
+When clustering the observations of our data, we try to divide them into different groups so the observations in every group are quite similar but the observations in different groups are different.
+
+We define the number of clusters before clustering.
+Because all our variables are quantitative we can use kmeans clustering.
+Note that each observations is assigned to only one specific cluster.
+According to the kmeans function, we try to minimize the difference between the observations inside a cluster and to maximize the difference between the clusters.
+
+
+# PART 2:
+## Artwork Classification.
+
+### KNN model:
+
+The k-nearest neighbor regression method is a
+nonparametric method for predicting an outcome variable Y,based on a predictor X
+or a matrix of predictors X .
+Nonparametric methods do not explicitly assume a parametric form for f(X) so it provides a more flexible approach for making the regression regression.
+
+How does the algorithm work?
+
+The KNN algorithm holds the assumption that same observations are close to each other.
+In this model, the nearest neighbors are observations that have the shortest distance  in the space from a new observation. 
+K is the number of  observations we want to check in the model. 
+This means, that while applying KNN model we should take into account the distance between observations and the number of observations we want to look at.
+
+
+Why we should use KNN model?
+
+It's quite intuitive model to explain.
+It gives quite high accuracy, relatively, but not as high as better supervised models.
+In addition, our mission is to cluster the observations, to assign a painter to each painting, so the KNN model is perfect for this kind of assignment.
+But KNN model can be slower and use more memory and place than other models, so if we have a lot of data it might be difficult to work with this model.
+
+we chose to use 100 pcs after several attempts because it gave us the highest accuracy.
+Note that the optimal value for K will depend on the bias-variance tradeoff.
+A small value for K provides the most flexible fit, which has low bias and high variance, and as we increase k the bias will typically increase while the variance decreases.
+The number of neighbors k is inversely related to the model complexity.
+
+
+We chose to use 100 pcs, which explains 72.2% of the variance,  after several attempts, because it gave us a good prediction. 
+Since there is a trade - off between the variance and bias when choosing the number we should be careful when increasing/decreasing it.
+
+train/test sets
+```{r,cache = TRUE}
+train_data <- data.frame(x_train_x[,1:100])
+train_data$class <- as.factor(y_train[,2])
+
+test_data <- data.frame(x_test.pca[,1:100])
+test_data$class <- as.factor(y_test[,2])
+
+XTrain <- train_data[,-c(101)] #predictors only
+XTest <- test_data[,-c(101)] #predictors only
+ 
+YTrain  <- train_data$class #true train classification
+YTest <- test_data$class #true test classification
+```
+
+
+A typical strategy to evaluate the performance of an algorithm with different values of the hyperparameters is k-fold cross-validation. The value of k is usually chosen between 2-10.
+
+showing the best 15 combinations for cv dataset and training set with highest accuracy
+```{r, cache=TRUE}
+set.seed(20)
+trControl.knn <- trainControl(method  = "cv", number  = 10)
+
+fit.knn <- train(class~.,
+             method     = "knn",
+             tuneLength = 15,
+             trControl  = trControl.knn,
+             metric     = "Accuracy",
+             data       = train_data)
+
+
+fit_cv.knn <- data.frame(fit.knn$results) %>% arrange(desc(Accuracy))
+
+k <- fit.knn$bestTune
+
+write.csv(data.frame(fit_cv.knn),"C://Users//VALER//Desktop//fit_cv.knn.csv", row.names = FALSE)
+head(fit_cv.knn,15)
+```
+
+```{r, cache=TRUE}
+fit_cv.knn <- read.csv("fit_cv.knn.csv")
+```
+
+plot of k vs accuracy.
+```{r, cache=TRUE}
+ggplot(data=fit_cv.knn,aes(k, Accuracy)) +geom_point() +geom_line() + ggtitle("Accuracy Plot for knn moddel") +geom_vline(xintercept = 27) + theme_light()
+```
+
+knn results
+```{r, cache=TRUE}
+# predict for test  by optimal k
+predicted.test.knn <- predict(fit.knn, XTest)  %>% as.factor
+knn.Confusion.Matrix.test <- confusionMatrix(predicted.test.knn, as.factor(YTest))
+
+knitr::kable(knn.Confusion.Matrix.test$table, caption = "confusion matrix of test")
+knitr::kable(prop.table(knn.Confusion.Matrix.test$table, 2), caption = "prop confusion matrix of test")
+
+knitr::kable(knn.Confusion.Matrix.test$overall[1], caption = "knn test Accuracy rate",col.names = NULL)
+```
+
+```{r}
+library(RColorBrewer)
+z = as.matrix(prop.table(knn.Confusion.Matrix.test$table, 2))
+heatmap(z,Colv = NA, Rowv = NA, scale="column", col = colorRampPalette(brewer.pal(8, "Purples"))(25))
+```
+
+According to the presented heatmap, it can be assumed that in general most of the painters were predicted correctly (according to the diagonal), and there were almost no confusions between painters (according to the squares outside the diagonal).
+However we would like to note some failures in the prediction:
+It can be seen that Hassam and Matisse weren't recognized as well as the other painters.
+In addition, Monet was confused with Hassam, Sargent and Matisse in too many cases. 
+
+
+### RANDOM FOREST model:
+
+In the random forest model, we build a number of decision trees on bootstrapped training samples, and then "decorrelate" them, trying to decrease the variance of the average.
+
+How does it work?
+
+we create multiple decision trees in a model, and we try to find the best tree. To classify a new observation with new attributes, every tree gives a classification.
+The forest chooses the classifications having the most votes of all the rest of trees, based on the importance score and takes the average difference from the output of different trees. In other words, this model creates multiple trees and unites them to achieve a more precise result.
+
+While building  trees the model divides into different subtrees, Then it looks for the best result from the random subsets. 
+Thats why, only the random subset is taken into consideration in random forest model.
+Each tree in the random forests is identically distributed, so the Bias of an average of trees is the same as the Bias of any one of them.
+We hope to improve through variance reduction.
+The decrease in accuracy is averaged over all trees and serves
+as a measure for variable importance.
+
+Why we should use this model?
+To begin with, we dicided to use RF after reading the article about tuning and using the suggested code on page 9 - it gave us a clue to use RF after tuning the reduced data.
+
+In addition, RF has several advantages:
+It provides higher accuracy through cross validation, and can deal with a big set of data while still keeping a high accuracy.
+It will handle the missing values and maintain the accuracy of a large proportion of data, which is important because we have a lot of observations and we use quit a high percentage of it. 
+If there are more trees, it avoids over-fitting trees in the model (which can help to get a higher accurancy)
+It has the power to handle a large data set with higher dimensionality 
+
+
+Tuning according to the given article, page 9:
+(Note that RF gives quite high accuracy rate even before performing the tuning proccess).
+
+in order to make the tuning proccess properly, we should choose the correct hyperparameters to get the highest possible accuracy rate.
+Firstly we should choose the number of drawn candidate variables in each split, for the mtry. Note that lower values of mtry lead to more different, less correlated trees, yielding better stability when aggregating.
+On the other hand, larger mtry values  leads to much higher magnitudes of the variable importances.
+But lower values of mtry also lead to trees that perform on average worse.
+Secondly, we choose the nodesize value, when setting it lower leads to trees with larger depth, which means it'll take more time to run the proccess.
+Thirdly, we choose the number of trees value. Note that it should be quite high for stable variable importance estimates.
+
+The aim of the tuning proccess is to find the optimal hyperparameters for a learning algorithm for our data.
+
+In random forest model, we used the out-of-bag observations to evaluate the trained algorithm.
+
+
+We chose to use 77 pcs, which explains 70% of the variance, and we chose this exact percentage because it gives us the best prediction.
+```{r,cache = TRUE}
+train_dat <- data.frame(x_train_x[,1:77])
+train_dat$class <- as.factor(y_train[,2])
+
+test_dat <- data.frame(x_test.pca[,1:77])
+test_dat$class <- as.factor(y_test[,2])
+```
+
+control case for random forest.
+```{r, cache = TRUE}
+set.seed(20)
+trControl.rf <- trainControl(method  = "cv", number  = 10)
+
+fit.rf <- train(class~.,
+             method     = "rf",
+             tuneLength = 15,
+             trControl  = trControl.rf,
+             metric     = "Accuracy",
+             data       = train_dat)
+print(fit.rf)
+fit_cv.rf <- data.frame(fit.rf$results)%>%arrange(desc(Accuracy))
+write.csv(data.frame(fit_cv.rf),"C://Users//VALER//Desktop//fit_cv.rf.csv", row.names = FALSE)
+
+finalModel.rf <- fit.rf$finalModel
+```
+
+
+showing the best 15 combinations, in a descending order:
+```{r, cache=TRUE}
+fit_cv.rf <- read.csv("fit_cv.rf.csv")
+head(fit_cv.rf,15)
+
+finalModel.rf
+```
+
+polt for mtry vs accuracy.
+```{r, cache=TRUE}
+ggplot(data=fit_cv.rf,aes(mtry, Accuracy)) +geom_point() +geom_line() + ggtitle("Accuracy Plot for random forest model") +geom_vline(xintercept = 12) + theme_light()
+```
+
+Tuning according to the given article, page 9
+We decided to focus mtry, sample size and ntree as explained above.
+
+I will use the method that presented in the article.
+```{r eval=FALSE}
+monk_data_1 = train_dat
+monk.task = makeClassifTask(data = monk_data_1, target = "y")
+estimateTimeTuneRanger(monk.task)
+set.seed(42)
+# Tuning
+res = tuneRanger(monk.task, measure = list(acc), num.trees = 2000,
+num.threads = 2, iters = 70, iters.warmup = 30)
+res
+
+# Ranger Model with the new tuned hyperparameters
+res$results
+
+#saving the recommended.pars to use it later in the random forest model creation
+res$recommended.pars
+
+#saving the results in csv file in order not to run tuning again.
+csv_file<-res$results%>%arrange(desc(acc))
+write.csv(csv_file,"C://Users//VALER//Desktop//res$results.csv", row.names = FALSE)
+```
+
+arranging the data frame in descending order by accurancy and saving in csv file
+```{r, cache = TRUE}
+res_results<-read.csv("res$results.csv")
+res_results
+```
+
+now predict on test data.
+```{r, cache=TRUE}
+#creating the random forest model using the recommended.pars after cross validation 
+RF_fit <- randomForest(class~.,data= train_data, mtry= 29, node_size= 2,ntree=round(0.4830004*nrow(train_data)))
+rf_pred <- predict(RF_fit, newdata = x_test.pca, type="class") #predict on the test set
+#rf_pred <- predict(fit.rf, newdata = x_test.pca) #predict on the test set
+
+#confusion matrix
+conf.matrix.rf <- confusionMatrix(rf_pred, as.factor(test_dat$class))
+#conf.matrix.rf <- table(predicted = rf_pred, actual = y_test[,2]) #confusion matrix
+
+knitr::kable(conf.matrix.rf$overall, caption = "rf test overall rate",col.names = NULL)
+knitr::kable(conf.matrix.rf$overall[1], caption = "rf test Accuracy rate",col.names = NULL)
+
+#prop confusion matrix of test
+knitr::kable(conf.matrix.rf$table, caption = "rf confusion matrix of test")
+knitr::kable(prop.table(conf.matrix.rf$table, 2), caption = "rfprop confusion matrix of test")
+```
+
+```{r}
+library(RColorBrewer)
+z = as.matrix(prop.table(conf.matrix.rf$table, 2))
+heatmap(z,Colv = NA, Rowv = NA, scale="column", col = colorRampPalette(brewer.pal(8, "Purples"))(25))
+```
+
+It can be seen immediately that the heatmap created according to RF model gives a more accurate prediction than KNN model - the diagonal is colored darker, and the squares outside the diagonal are colored lighter.
+And more precisely: Hassam and Mattisee are predicted better than in KNN model, only Degas is predicted a little worse than in KNN.
+The confusions between painters which were noticed in KNN model don't appear now, there is only one strong confusion which didn't appear in KNN, between Degas and Renoir.
+
+
+So which one of the models we should prefer for the assignment?
+
+According to the final accuracy tables of both models, it is easy to see that the Random Forest model gives a higher accuracy, just as we explained it would be above.
+In addition, RF model runs faster than the KNN model and uses less memory and space, since it uses random trees and recursion method. In conclusion, even so KNN model is simpler t understanding and fits perfectly to our mission, we suppose that in terms of time, memory and accuracy rate Random Forest is better than KNN model.
+
+In addition, we would like to mention that we could probably get a little bit higher accuracy in both models by changing (increasing/decreasing) the parameters, for example in RF we could change the number of trees and the percentage of explained variance we want to get to, and in KNN model we could change the number of folds, the k value and the interval. 
+
+
+Conclusions according to the confusion matrices:
+We saw that both models confused between pairs of painters, and there is a logical reason for that- There are pictures which have very similar colors and similar shades, so when we turn them into vectors by defining them by 3 colors (red, green,blue), we receive a very high correlation between the pictures.
+So similar pictures with high correlations have a bigger chance to be confused with each other when predicting on the test.
+
+In addition, note that the pictures of Hassam and Pissaro weren't assigned well when we used KNN model. It probably happened, because the pictures of Hassam are too colorful, so it is difficult to find them among the rest of the pictures, and Pissaro's pictures have dominant natural colors, like green and blue which are also very popular in other painters' pictures.
+
+Note that the confusion matrices prove that RF model gives a better prediction than KNN model, because more painters were assigned proparly to the pictures, in other words - the percentages on the diagonal of the matrix was higher and outside of the diagonal - lower (we want to achieve that).
+
+Finally, we'd like to remind that we didn't run some of the chunks during the knit, since we saved most of the results in csv files in order not to run everything again.. So those codes and chunks appear only in the RMD file.
+
+
+
+BIBLIOGRAPHY:
+
+tuning in KNN model
+
+https://stats.stackexchange.com/questions/318968/knn-and-k-folding-in-r
+
+information about RF model
+
+https://www.newgenapps.com/blogs/random-forest-analysis-in-ml-and-when-to-use-it-2/#:~:text=Why%20use%20Random%20Forest%20Algorithm&text=Random%20forest%20algorithm%20can%20be,a%20large%20proportion%20of%20data.
+
+https://www.r-bloggers.com/2020/01/product-price-prediction-a-tidy-hyperparameter-tuning-and-cross-validation-tutorial/
+
+Article about tuning
+
+https://arxiv.org/pdf/1804.03515.pdf
+
+Predictive Modeling with PCA Components
+
+https://www.analyticsvidhya.com/blog/2016/03/pca-practical-guide-principal-component-analysis-python/
+
+Creating heatmap
+
+https://www.r-graph-gallery.com/215-the-heatmap-function.html

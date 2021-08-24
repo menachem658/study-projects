@@ -1,0 +1,317 @@
+---
+title: "Quiz 2"
+author: "Menachem Sokolik Idan Keipour"
+date: "6 6 2021"
+output:
+    rmarkdown::github_document:
+    theme: journal
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+```{r, cache=TRUE}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE, results==hide, warning=FALSE, include=FALSE}
+library(tidyverse) # This includes dplyr, stringr, ggplot2, .. 
+library(data.table)
+library(olsrr)
+library(corrplot)
+library(htmlTable)
+library(magrittr)
+library(ggpubr)
+```
+
+
+### Q 1
+
+```{r}
+df <-  read.csv("quiz2_df.csv") # read  the data
+attach(df)
+df[c(3:9)] <- lapply(df[c(3:9)], function(x) c(scale(x))) #scaling
+str(df)
+```
+
+#### 9
+#### compute Pearson correlations among the variables in the data set.
+```{r}
+corrplot(round(cor(df[,-2]),digits=3),method = "number", type = "lower",
+         cl.cex = 0.6, pch.cex = 0.6, tl.cex = 0.6, number.cex = 0.6)
+```
+
+the correlation between $(y,x_3),(y,x_7),(x_7,x_3),(x_6,x_5)$ is seen to be very high.
+
+As learned in a correlation lesson according to Pearson coefficient is good only for pairs of variables. When dealing with multiple variables we will prefer other methods.
+
+#### compute $R^2$ method that $R^2_j=\frac{SSR_{\left(j\right)}}{SST_{\left(j\right)}}$
+when are $SSR_{(j)}$ and $SST_{(j)}$ are the sums of the squares corresponding to a multiple linear regression of $X^{(j)}$ on all other explanatory variables. $R^2$ is the variance ratio of $X^{(j)}$ explained by the other explanatory variables
+
+run the regressions.
+```{r}
+fit <- lm(Y~., data = df)
+```
+
+Multicolinearity using condition index and VIF, TOL.
+
+```{r}
+coll.ans <- ols_coll_diag(fit)
+dd <- coll.ans$vif_t
+dd[with(dd, order(-VIF)), ]
+```
+$Tolerance:= 1-R^2_j=\frac{SSE_{\left(j\right)}}{SST_{\left(j\right)}}$ 
+If the equality is high then there is less multiculturalism. 
+Like the variables $(x_2, x_0,x_4,x_1)$ As a rule of thumb they have multicollinearity.
+$VIF:=\frac{1}{1-R^2_j}$ 
+If the equality is low then there is no multiculturalism.
+Like the variables $(x_2, x_0,x_4,x_1)$ As a rule of thumb they have multicollinearity.
+
+rule of thumb for values is $R^2=0.85$ As a result $Tol\ge 0.15 , VIF\ge 6.6$ is aIndication of strong multicollinearity.
+
+#### Condition indices and Condition number.
+The condition number of x is set to be $\gamma \left(x\right):=\left(\frac{\gamma _{\max }\left(X^TX\right)}{\:\gamma _{\min \left(X^TX\right)}}\right)^{\frac{1}{2}}$ When we are in the range of 30-100 then it is an indication of strong multicollinearity.
+
+The condition indices of vector $u_k$ of $(X^TX)$ is set to be $\alpha \left(x\right):=\left(\frac{\gamma _{\max }\left(X^TX\right)}{\:\gamma _{k \left(X^TX\right)}}\right)^{\frac{1}{2}}$ High value can help us locate $X^{(j)}$ "problematic" explanatory variables, according to the coordinates of $u_k$.
+
+```{r}
+fit <- lm(Y~.-X0, data = df) # we have intercept replace X0. 
+round(ols_eigen_cindex(fit),3)
+```
+
+When the Condition Index is high then there is a high correlation indication alternatively when the Eigenvalue is low.
+It can be seen that there is in the variables $(x_5,x_6)$, high correlation that we saw also in Pearson correlations. Condition Index
+Indicates $20.144$. But variables $(x_3,x_7)$ have an effect of lower but still existing variables, the Condition Index Indicates $10.199$.There is a small impact on $(x_1,x_4)$.Each column sums to one so it is proportionally. It is difficult to say that there is strong information for multicollinearity as it is subtly smaller than the total finger $30-100$. 
+$\gamma \left(x\right):=\left(\frac{\gamma _{\max }\left(X^TX\right)}{\:\gamma _{\min \left(X^TX\right)}}\right)^{\frac{1}{2}}= 20.144  \rightarrow  \gamma \left(x\right) < 30$.
+
+#### 10
+
+```{r}
+sigma_sq <- 2 # true sigma squared
+beta <- c(3.155678, -2.967792, 5.6823762, -9.4346238, -3.7229186, 0.8544212, -1.4265823, 10.4009092) # true beta vector
+lambda_seq <- seq(10^{-4},1,length.out = 200) # lambda sequence to try
+lambda_seq_mod <- seq(10^{-4},10^5,length.out = 200)
+
+ridge_aux_functions <- function(X, Y, lambda, sigma_sq, beta_true){
+  #' @param X is the X data frame/matrix
+  #' @param Y is the Y variable
+  #' @param lambda is the ridge penalty parameter
+  #' @param sigma_sq is the true model sigma squared
+  #' @param beta_true is the true model beta vector
+  X <- as.matrix(X)
+  Y <- as.matrix(Y)
+  beta_true <- as.matrix(beta)
+  lambda_diag <- lambda*diag(dim(X)[2]) # lambda*I
+  beta_ridge <- solve(t(X) %*% X+lambda_diag) %*% t(X) %*% Y
+  A <- solve(t(X) %*% X+lambda_diag) %*% t(X) %*% X
+  bais_ridge <- (A %*% beta_true - beta_true)
+  var_ridge <- sigma_sq %*% sum(diag(A %*% solve(t(X)%*%X) %*% t(A)))
+  mse_ridge <- var_ridge + t(bais_ridge)%*%bais_ridge # from q 6-9.
+  
+  beta_ols <- solve(t(X) %*% X) %*% t(X)%*%Y
+  A <- solve(t(X) %*% X) %*% t(X) %*% X
+  bais_ols <- (A %*% beta_true - beta_true)
+  var_ols <- sigma_sq %*% sum(diag(A %*% solve(t(X)%*%X) %*% t(A)))
+  mse_ols <- var_ols + t(bais_ols)%*%bais_ols # from q 6-9.
+  return(list(lambda = lambda, mse_ridge = mse_ridge, mse_ols = mse_ols))
+}
+X <- df[,-1]
+Y <- df["Y"]
+```
+
+The ratio between the different mse overall makes sense since Lambda is close to zero so the punishment is low, as will be explained below
+
+#### 11
+```{r}
+dat <- data.frame(lambda=NA, mse.ridge=NA, mse.ols=NA)
+for (lambda in lambda_seq){
+  x <- unlist(ridge_aux_functions(X,Y,lambda,sigma_sq,beta))
+  dat <- rbind(dat, x)
+}
+dat <- arrange(na.omit(dat), lambda)# Arrange rows by column values 
+
+ggplot(dat, aes(x = lambda)) + geom_line(aes(y = mse.ols, colour = "mse.ols")) + geom_line(aes(y = mse.ridge, colour = "mse.ridge")) +ylab("MSE for betas")
+```
+
+
+It can be seen that when $\lambda=0$ then the two models merge as expected, but when When  $\lambda\not=0$ It can be said that the larger the $\lambda$ then we will reduce the $MSE[\hat\beta]$ to a certain point when one large $\lambda$ can be seen that the $MSE$ is starting to grow. There are ways to choose the optimal $\lambda$ 
+like when $\lambda=2$ is not optimal for low $MSE[\hat\beta]$.
+This represents the well-known trade-off between bais and var. When the var is reduced then the bais increases as well as in exchange.
+
+```{r}
+lambda_seq <- seq(10^{-4},2,length.out = 200) # lambda sequence to try
+dat <- data.frame(lambda=NA, mse.ridge=NA, mse.ols=NA)
+for (lambda in lambda_seq){
+  x <- unlist(ridge_aux_functions(X,Y,lambda,sigma_sq,beta))
+  dat <- rbind(dat, x)
+}
+dat <- arrange(na.omit(dat), lambda)# Arrange rows by column values 
+
+ggplot(dat, aes(x = lambda)) + geom_line(aes(y = mse.ols, colour = "mse.ols")) + geom_line(aes(y = mse.ridge, colour = "mse.ridge")) +ylab("MSE for betas")
+
+```
+
+In order to better understand the model i build this function.
+```{r}
+ridge_aux_functions_1 <- function(X, Y, lambda, sigma_sq){
+  #' @param X is the X data frame/matrix
+  #' @param Y is the Y variable
+  #' @param lambda is the ridge penalty parameter
+  #' @param sigma_sq is the true model sigma squared
+  X <- as.matrix(X)
+  Y <- as.matrix(Y)
+  
+  lambda_diag <- lambda*diag(dim(X)[2]) # lambda*I
+  beta_ridge <- solve(t(X) %*% X+lambda_diag) %*% t(X) %*% Y
+  yhat_ridge <- X %*% beta_ridge
+  mse_ridge <-  mean((Y-yhat_ridge)^2)
+  
+  beta_ols <- solve(t(X) %*% X) %*% t(X)%*%Y
+  yhat_ols <- X %*% beta_ols
+  mse_ols = mean((Y-yhat_ols)^2)
+  return(list(lambda = lambda, mse_ridge = mse_ridge, mse_ols = mse_ols))
+}
+X <- df[,-1]
+Y <- df["Y"]
+```
+
+```{r}
+dat <- data.frame(lambda=NA, mse_ridge=NA, mse_ols=NA)
+for (lambda in lambda_seq){
+  x <- unlist(ridge_aux_functions_1(X,Y,lambda,sigma_sq))
+  dat <- rbind(dat, x)
+}
+dat <- arrange(na.omit(dat), lambda)# Arrange rows by column values 
+
+ggplot(dat, aes(x = lambda)) + geom_line(aes(y = mse_ols, colour = "mse_ols")) + geom_line(aes(y = mse_ridge, colour = "mse_ridge")) +ylab("MSE")
+```
+
+
+Ridge regression is very similar to least squares, except that
+the coefficients are estimated by minimizing a slightly different
+quantity. The standard least squares estimates (ridge regression with
+$\lambda=0$ like in the plot.) are scale equivariant. This means that multiplying $X_j$ by a constant $c$ simply leads to a scaling of the least squares coefficient by $\frac{1}{c}$ so that $X_j\hat\beta{_j}$ will remain the same. 
+In contrast, the ridge regression coefficient estimates are not scale equivariant and can change substantially when multiplying a given predictor by a constant. $X_j\hat\beta{_j}$ will depend not only on $\lambda=0$ but also on the scaling of the $j^{{th}}$
+th predictor and the scaling of the other predictors.
+Therefore, it is best to apply ridge regression after
+standardizing the predictors.
+In situations where the relationship between the response and the predictors is close to linear, the least squares estimates and predictions will have low bias but may have high variance.
+In particular when the number of variables p is almost as large as the number of observations. Ridge regression works best when the least squares solution has high variance as it can trade a small increase in bias for a large decrease in variance. Ridge regression has one obvious disadvantage.
+The penalty $\lambda\sum_{j=1}^{p}\beta_j^2$ will shrink all of the coefficients toward zero, but it will not set any of them exactly to zero.
+This may not be a problem for prediction accuracy, but can create a challenge in model interpretation.It can also be seen that by the penalty could have been reduced in this model which is not without bias it by increasing the variance.
+It can be seen that the larger the lambda, the greater the justice.
+
+#### 12
+```{r}
+ridge_aux_functions_2 <- function(X, Y, lambda_seq_mod){
+  dat_2 <- data.frame(index=NA, lambda=NA, beta_ridge=NA)
+  X <- as.matrix(X[])
+  Y <- as.matrix(Y)
+  lambda_diag <- lambda*diag(dim(X)[2]) # lambda*I
+  beta_ridge <- solve(t(X) %*% X+lambda_diag) %*% t(X) %*% Y
+  return(data.frame(index=1:length(beta_ridge) ,lambda = rep(lambda, length(beta_ridge)), beta_ridge = beta_ridge))
+}
+
+X <- df[,-1]
+Y <- df["Y"]
+dat_2 <- data.frame(index=NA, lambda=NA, beta_ridge=NA)
+for (lambda in lambda_seq_mod){
+  y <- c(ridge_aux_functions_2(X,Y,lambda_seq_mod))
+  names(y) <- c("index", "lambda", "beta_ridge") # Synchronize the names that will match between the data frame.
+  dat_2 <- rbind(dat_2, y)
+}
+dat_2 <- arrange(na.omit(dat_2), lambda) # Arrange rows by column values 
+dat_2$index <- as.factor(dat_2$index-1) # Because there is a cutter then double of one variable
+rownames(dat_2)<-NULL
+dat_2
+```
+
+```{r}
+ggplot(dat_2, aes(x = lambda, y= beta_ridge, col=index))+geom_line()
+```
+
+We can note that if what was explained in the previous section is fulfilled, the beta of the various variables is compiled to zero. The ridge model is a penalty model the larger the learning the higher the penalty the i.e. the least effective variables supposedly converged faster. Therefore variables $(x_2,x_3,x_7)$ are more efficient variables as they converge more slowly and they do have higher variability.
+
+### Q 2
+#### 1
+```{r}
+eagles <- read.csv("eagles_sim.csv")
+x <- eagles$x
+y <- eagles$y
+plot(x,y,xlab = "years pass since 1950",ylab = "observed pairs of eagles",col="blue")
+abline(lm(y ~ x))
+```
+
+
+We can see that the observations do not indicate a linear connection but an exponential connection. Therefore, we will use the log function (natural base) to estimate a linear model.
+
+```{r}
+eagles$z <- log(eagles$y)
+z <- eagles$z
+plot(x,z,xlab = "years pass since 1950",ylab = "log of observed pairs of eagles",col="red")
+abline(lm(z ~ x))
+```
+
+We can see that now the observations are hinting at a linear relationship between x to y.
+
+#### 2
+```{r}
+model <- lm(z ~ x)
+r <- rstandard(model)
+```
+
+
+First we want to test if the distribution of the vector epsilon is a normal distribution. To do this we will use a histogram for the standardized residues. In addition we will use QQplot to test the percentages of ri against the percentages of standard normal distribution.
+
+```{r}
+df_model <- data.frame(x,z,r)
+plot1 <- ggplot(df_model,aes(x=r)) + geom_histogram(aes(y=..density..), alpha = 0.8, bins = 10) +
+stat_function(fun = dnorm, args = list(mean = 0, sd = 1), col="red", lwd = 1.5)+theme_gray()
+
+plot2 <- ggplot(df_model, aes(sample = r))+stat_qq()+geom_qq_line(col = "red", lwd = 1)+theme_gray()
+ggarrange(plot1,plot2)
+```
+
+
+We can see that there is a deviation from the assumption that the errors are normally distributed. Both the histogram and the QQplot do not match this assumption of the model.
+However, the number of observations in the sample is not high and therefore the plots are particularly sensitive to anomalies.
+
+
+To test the linearity assumption $(E[ε_i]= 0)$ we will compare ri and y-hat. If the assumption holds we would like to see a random scatter in the output.
+```{r}
+y_hat <- fitted(model)
+plot(y_hat,r,ylab = "Standart   residuals")
+```
+
+
+
+The emission shows a relatively random scattering (for  $7\le \hat Y \ge 9$) except for two abnormal observations. In our opinion this does not detract from the assumption of normalcy, especially when there are only 20 observations.
+
+
+To test the assumption of equality of variance  $(var[ε_i]=\sigma^2)$ we will compare $r_i$ and $x$. If the assumption holds we would like to see a random scatter in the output.
+
+```{r}
+plot(x,r,ylab = "Standart   residuals")
+```
+
+The plot looks the same as the previous plot. there is a random scattering (for
+$30\le x\ge 50$) except for two abnormal observations. Therefor, also in this case we won't reject the assumption of equality of variance.
+
+#### 3
+
+```{r}
+predicted_log <- predict.lm(model,list(x=27),interval = "prediction",level = 0.9)
+low_pred <- exp(predicted_log[2])
+high_pred <- exp(predicted_log[3])
+cat(paste("The predicted interval for the number of pairs of eagles for x=27 is:\n","[",low_pred,"," ,high_pred,"]"))
+```
+
+
+We built a prediction interval for the new observation (at a confidence level of $90%$) but it should be remembered that we made a log for the eagles observations. At the same time, because log is a monotonic function we can raise the interval we found to the exponent to get the number of predicted observations for the added year.
+

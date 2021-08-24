@@ -1,0 +1,336 @@
+
+---
+title: "lab 1"
+author: "Menachem Sokolik"
+date: "14 4 2021"
+output:
+    rmarkdown::github_document:
+    theme: journal
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+```{r, cache=TRUE}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+## LAB  1
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#### 1.import the data set and attach the dataset to R.
+```{r}
+data <-read.csv("CAhousing.csv")
+attach(data)
+```
+
+```{r, include=FALSE}
+library(dplyr)
+library(stats)
+library(data.table)
+library(datasets)
+library(tidyverse)
+library(corrplot)
+library(Hmisc)
+```
+#### 2 a. getting to know the data and the size of the data set  
+```{r}
+rowsandcols = dim(data)
+print(rowsandcols)
+```
+the number of rows is 20640 and the number of columns is 9
+
+
+#### b. Print summary statistic
+```{r}
+summary(data)
+```
+#### c-d. Learn about the variables from and Print correlation matrix. Which variables are correlated?
+```{r}
+cor(data)
+```
+
+```{r}
+corrplot(cor(data), method="number")
+```
+We can now identify by the correlation matrix where there is correlation between the variables and at what intensity. When the clarity of the numbers indicates the intensity of the correlation in the diagram.
+most of the paired variables are correlated, except for: 
+latitude-housingMedianAge,medianIncome-longitude, totalBedrooms-medianIncome,population-medianIncome,households-medianincome
+those pairs of variables have a very small coefficient (in absolute value)
+which means the correlation between them is not clear.
+We can see that the households,population and totalbedrooms are strongly related with each other.Also the medianHouseValue and medianIncome are strongly related, while lattitude and longitude are strongly negatively related.
+(if the corr coeficient is high and negative - then the variables are strongly negative correlated, and if the corr coefficient is high and positive - the variables are strongly positive correlated)
+
+#### 3.We want to predict median house prices in a block by the median of income in the block:
+#### a. What can we learn about the relationship between the variables?
+```{r}
+library(ggplot2)
+ggplot(,aes(y=medianHouseValue, x=medianIncome))+
+  geom_point()
+```
+
+
+
+we can see that there's a linear relation between the variables.
+the median house value rises with the median income, they are positively strongly correlated.
+However, we can notice that for all the values of median incomes, there are many observation at the top of the graph - which means that the median house values of them is very high. Maybe it happened because of some limit on the median house value. Those observations probably lowers the correlation between the variables and creats some bias.
+#### b. simple linear regression.
+```{r}
+fit <- lm(medianHouseValue~medianIncome)
+```
+#### c. summary of regression
+```{r}
+summary(fit) 
+```
+the coef of median income is 41793.8, which means that for every rise of 10000 dollars in the income, we expect a rise of 41793.8 rise in the value of the house.
+
+#### d.Print diagnostic plots of regression results
+```{r}
+plot(fit)
+
+```
+#### e.  Extract predicted values. (Hint: use $ syntax similar to extracting a variable from a database).
+```{r}
+pred <- fit$fitted.values
+```
+
+#### f.  Plot scatter plot of median income and median house value, then plot regression line.
+```{r}
+ggplot(, aes(x = medianIncome, y = medianHouseValue)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+```
+### Revisit regression
+#### 4.a
+returning to the graph in 3.a.
+```{r}
+ggplot(,aes(y=medianHouseValue, x=medianIncome))+
+  geom_point()
+```
+the histogram
+```{r}
+hist(medianHouseValue,breaks=100)
+```
+You can tell that there are anomalies in the data. From both charts you can notice that there are many houses with high median house value. It may be a data mistake, or some limit of the maximum possible value.
+We can understand that this column of extremely high values of medianHouseValue is the upper line we saw in the plot between the median income and the median house value above. (The line is all the observations in the top of the graph, it looks like a line)
+
+#### 4.b Fit a full regression model
+```{r}
+fit_all <- lm(medianHouseValue~. , data=data)
+summary(fit_all)
+```
+#### 4.c is the fit too good to be true? Look back at the correlation matrix. Should we omit some variables? Which ones?
+
+We can see that all of the variables have a very strong relation to the median house value, which seems unlikely to be true.. But we also learn from the correlation matrix, that there was a very high correlation between the rest of the variables and the median income. That means that all those variables are related and correlated, so there is no good reason to add them to the complex regression. 
+The only variables we must use in the complex regression are: median income, lattitude and total rooms, as all the other variables will be highly correlated with the three mentioned (so if we added all of the variables to the regression, there would probably be a multiculiniarity).
+
+
+
+## LAB 2 - KNN Analysis
+
+#### 2.1. import the libraries
+```{r}
+library(ISLR)
+library(class)
+```
+#### 2.2. the data
+```{r}
+dat = Default
+```
+#### 2.3.a. size of dataset
+```{r}
+dsize = dim(dat)
+dsize
+```
+There are 10000 rows and 4 columns.
+
+#### 2.3.b. Print summary statistics. Are there any anomalies? Are the variables centered around 0?
+```{r}
+summary(dat)
+```
+#### finding the anomalies
+#### a simple histogram of balance frequency and a scatter plot of balance-income:
+```{r}
+plot(dat[c("income","balance")])
+hist(dat$balance,xlab="balance")
+```
+It seems from the hystogram that the frequency of balance around 0 is higher than we expected, perhaps that happened because this variable can't be negative, so all the negative observations were made into 0. After taking this into account, the hystogram reminds of a normal distribution with an anomaly.
+We can see this anomaly in the scatter plot too, because there is a big number of observations near the x-axis.
+However, we can't say that the values are centered around 0, but all of the values are positive and centered from the right side of 0.
+
+#### 2.3.c. learning about the variables.
+```{r}
+(help(Default))
+```
+
+#### 2.3.d. SD of balance and of income.
+```{r}
+sd(dat$balance)
+sd(dat$income)
+```
+The default data isn't standardized, we can learn it from the standard deviation of the variables above, both of them are way bigger than 1. If we would like to standardize them, perhaps we should make a linear transformation on the variables.
+
+#### 2.4.a.
+```{r}
+Subset_data <- dat[c("balance","income","default")]
+```
+#### 2.4.b. Normalize the numeric predictor variables using scale().
+```{r}
+Subset_data$balance <- as.vector(scale(Subset_data$balance))
+Subset_data$income <- as.vector(scale(Subset_data$incom))
+
+```
+#### 2.4.c. Split data into train and test set (remember, we need a train and test set with predictors only, and another train and test set with only the variable we want to predict)
+```{r}
+set.seed(123)
+index <- sample(x=1:nrow(dat), size=.3*nrow(dat))
+test <- Subset_data[index,]
+train <- Subset_data[-index,]
+test_pred <- test[c("balance","income")] #predictors only
+train_pred <- train[c("balance","income")] #predictors only
+test_default <- test$default #true test classification
+train_default <- train$default #true train classification
+```
+#### 2.4.d. Run K-nearest neighbors with 1, 5, 20, and 70 k's (define each one as a different object).
+
+#### Data Cleaning
+```{r}
+Subset_data <- dat[c("balance","income","default")]
+```
+#### Data Normalization
+```{r}
+Subset_data$balance <- scale(Subset_data$balance)
+Subset_data$income <- scale(Subset_data$income)
+```
+#### Data Slicing
+```{r}
+set.seed(123)
+dat.d <- sample(1:nrow(Subset_data),size=nrow(Subset_data)*0.7,replace = FALSE) #random selection of 70% data.
+train <- Subset_data[dat.d,] # 70% training data
+test <- Subset_data[-dat.d,] # remaining 30% test data
+test_pred <- test[c("balance","income")] #predictors only
+train_pred <- train[c("balance","income")] #predictors only
+test_default <- test$default #true test classification
+train_default <- train$default #true train classification
+
+```
+
+####  Building a Machine Learning model
+```{r}
+i=1
+k.optm=1
+for (i in c(1,5,20,70)){
+  knn.mod <- knn(train = train_pred, test=test_pred, cl = train_default,  k = i)
+  k.optm[i] <- 100 * sum(test_default == knn.mod)/NROW(test_default)
+  k=i
+  cat(k,'=',k.optm[i],'')
+  print(table(knn.mod, test_default))
+  print(prop.table(table(knn.mod, test_default),2)) #percentages
+  print(paste("with",paste(i,paste('neighbors the accuracy is: ',paste0(k.optm[i],"%")))))
+}
+```
+#### Accuracy plot
+```{r}
+plot(k.optm, type="b", xlab="K- Value",ylab="Accuracy level")
+```
+We can see from the results above, that for a different value of K we get a different percentage of accuracy. It is important to mention, that as K rises- the bias rises as well but the variance decreases, so we try to find the "golden line" between both of those values, which the optimal K will give us. But the optimal K depends also on the seed value we chose at the beginning of the program, and on the division of the data to training and test groups. If we change one of those parameters, the value of our optimal K may change. 
+
+#### 2.5
+```{r}
+summary(train_default)
+prop.table(table(train_default))
+```
+
+```{r}
+for (i in 1:1){
+  prob_train <- prop.table(table(train_default))
+  prob_variable <- prop.table(table(Subset_data$default))
+  print('*********************************')
+  print('frequency table of training set')
+  print(table(train_default))
+  print('*********************************')
+  print('proportion table of training set')
+  print(prob_train)
+  print('*********************************')
+  print('frequency table  of main data')
+  print(table(Subset_data$default))
+  print('*********************************')
+  print('proportion table main data')
+  print(prob_variable)
+  print('*********************************')
+}
+```
+
+It can be noticed that the percentage of negative observations in the main data is 96.67%, so if we'll guess that all the observations are negative, then for sure we'll be right in more than 95% of the cases.  The problem which our solution creates is that it depends on the data, so there'll be over-fitting, because we rely on the specifics of the data.
+The solution is to find out more general features of the observations to train our machine on them, in order to minimize the over-fitting.
+
+
+
+## LAB 3 
+#### Data Normalization
+
+#### splitting the main data to train and test sets:
+```{r}
+data <-read.csv("CAhousing.csv")
+data<-data.frame(scale(data[c("medianHouseValue","medianIncome")]))
+train <- sample_frac(data, 0.8)
+sid <- as.numeric(rownames(train)) # because rownames() returns character
+test <- data[-sid,]
+```
+
+#### Use the “ksmooth” function from the stats library in order to predict the median house value from CAhousing.csv, using only the best predictor variable.
+
+```{r}
+kernel <- c("Gaussian","box")
+train_Income <- train$medianIncome
+train_HouseValue <- train$medianHouseValue
+test_HouseValue <- test$medianHouseValue
+pred_data <- data.frame(kernel = NA, h = NA, y_pred=NA,x_pred=NA)
+testing_data <- data.frame(kernel = NA, h = NA, train_MSE = NA, test_MSE = NA)
+for (k in kernel){
+  for (h in c(1,3,5,20)){
+    if (k=="Gaussian"){ pred<-ksmooth(train_Income,train_HouseValue,kernel = "normal",bandwidth = h )}
+    if (k=="box"){pred <- ksmooth(train_Income,train_HouseValue,kernel="box",bandwidth = h)}
+    train_MSE <-mean((train_HouseValue-pred$y)^2)
+    test_MSE <- mean((test_HouseValue-pred$y)^2)
+    pred_data<-rbind(data.frame(x_pred=pred$x,y_pred=pred$y,kernel=k,h=h),pred_data)
+    data <- data.frame(kernel=k, h=h, train_MSE=train_MSE, test_MSE=test_MSE)
+    testing_data <- rbind(testing_data,data)
+  }
+}
+```
+#### train MSE and test MSE Normaliz 
+```{r}
+testing_data <- na.omit(testing_data)
+testing_data$train_MSE <- testing_data$train_MSE
+testing_data$test_MSE <-testing_data$test_MSE
+print(testing_data <- testing_data[order(testing_data$train_MSE),])
+```
+
+```{r}
+
+pred_data <- pred_data%>%filter(h %in% testing_data$h )
+pred_data$x<-train_Income
+pred_data$y<-train_HouseValue
+ggplot(pred_data,aes(x=x ,y=y,col="data"))+
+  geom_point(aes(alpha= 0.2, ), colour = 'Black')+
+  geom_line(aes(x=x_pred,y=y_pred,col=as.factor(h)),size= 1)+
+  facet_grid(~kernel)+
+  xlab("Median Income")+ylab("Median House Val")+
+  guides(fill=guide_legend(title="h-val"))
+```
+
+What can we learn from the graphs above?
+We can see that in both graphs, with the rise of the value of h, the regression line gets closer to the average value line of Median House Val - the average of the y - axis.
+In the presentation it was written, that as the k value grows, the variance rises as well, but the bias decreases (so this is probably the reason the regression line gets closer to the avg meaning (after normalization)).
+In addition, from the MSE chart above we learn that the MSE of box method is bigger than the MSE of Gaussian method for every value of h we chose. We would probably prefer the Gaussian method because it lowers the value of MSE..
+(The box method is based on uniform distribution whereas the Gaussian is based on normal distribution - for a given set of data and k value, the variance of uniform distribution is larger than the variance of normal distribution.).
+On the other hand, we can see that the regression line of Gaussian method "tries" to fit the extreme values in the right upper corner more than the box plot method. This is exactly the variance - bias trade off which we learned about in the lecture.
+We can also notice some unwanted over - fitting in the box plot when the value of h is 1 (in the upper right corner).
+In conclusion, it is not very clear which method we should choose, because every value of h and each method has its own benefits and disadvantages, so it depends on our specific case. In our opinion the regression lines in the box method fit better the majority of observation, so we would choose it. 
+
+
+
+

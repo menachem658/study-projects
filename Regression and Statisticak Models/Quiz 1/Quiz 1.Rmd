@@ -1,0 +1,162 @@
+---
+title: "Quiz 1"
+author: "Menachem Sokolik and Idan Keipour"
+date: "12 5 2021"
+output:
+    rmarkdown::github_document:
+    theme: journal
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+```{r, cache=TRUE}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+```{r setup, include=FALSE}
+library(dummies)
+library(dplyr)
+library("ggplot2")        
+library("GGally")
+library(corrplot)
+
+```
+
+```{r}
+My_lm <- function(X,Y){
+  #' @param X is matrix with n rows and p+1 columns
+  #' @param Y is vector with length n 
+  # TODO: Complete the code.
+  #       Don't use any external libaries or functions for computing linear models.
+  X <- as.matrix(X)
+  X <- cbind(1,X) # n*(p+1)
+  Y <- as.matrix(Y) 
+  n <- nrow(X)
+  p <- ncol(X) - 1
+  dof <-  n-p-1
+  # t(X) is the transponse, %*% is matrix multiplication,
+  # solve takes the inverse
+  A <- solve(t(X) %*% X)
+  # this comes from looking at formula for beta hat and
+  # multiplying the additional terms needed
+  beta_hat <- A %*% t(X) %*% Y
+  Y_hat <- X %*% beta_hat
+  # just filling in formula
+  residuals <- Y - (Y_hat)
+  sigma2_hat <- t(residuals) %*% residuals/dof
+  # I’ve put as.numeric() at the end to convert it to a single scalar number 
+  # instead of a 1 by 1 matrix.
+  sigma2_hat <- as.numeric(sigma2_hat)
+  # covariance matrix of estimated regression coefficients
+  # is just the estimated residual variance times solve(t(X) %*% X)
+  # we calculuted earlier and stored as A
+  beta_cov <- sigma2_hat * A
+  # diag takes the diagonal of the matrix, sqrt makes it go
+  # from variance to standard deviation
+  beta_SE <- sqrt(diag(beta_cov))
+  
+  T_stat <- beta_hat/beta_SE
+  P_Values <- 2*(1-pt(abs(T_stat),dof))
+    
+  # residual sum of squares divided by total sum of squares
+  R_squared <- 1- sum((residuals)^2)/sum((Y - mean(Y))^2)
+  return(list(beta_hat, beta_cov, T_stat, P_Values, sigma2_hat, R_squared, dof, residuals, X, Y, Y_hat))
+}
+```
+
+```{r}
+df <- read.csv("startups.csv")
+```
+### i
+```{r}
+str(df)
+```
+```{r}
+summary(df)
+```
+### ii
+```{r}
+hist(df$Profit, xlab = "Profit")
+```
+looks like a normal distribution but with long right tail. 
+also can see that with the QQPlot to identify normality.
+```{r}
+qqnorm(df$Profit)
+qqline(df$Profit, lwd = 2)
+```
+### iii
+```{r}
+# automatic for the correlation coefficients.
+# The diagonal consists of the densities of the three variables and the upper panels consist of the correlation coefficients between the variables.
+ggpairs(df[c(-4)])
+pairs(~ R.D.Spend + Administration + Marketing.Spend + Profit, data = df, upper.panel = NULL)
+```
+
+```{r}
+# by hand
+cor_df <- cor(df[c(-4)])
+corrplot(cor_df, method="number",type = "lower" )
+cor_df
+```
+### iv
+```{r}
+# matrix of profit
+# dummy <- for k variables making k-1 categorical.
+df$New_York <- ifelse(df$State == "New York", 1,0)
+df$Florida <- ifelse(df$State == "Florida", 1,0)
+Y <- df["Profit"] 
+X <- df %>% select(-c("Profit","State"))
+My_reg <- My_lm(X,Y)
+coeff <- My_reg[[1]]
+rownames(coeff)[1] = "Intercept"
+coeff
+```
+
+### v
+```{r}
+t_stat <- My_reg[3]
+t_stat
+```
+### vi
+```{r}
+CI <- function(alpha, coeff, beta_cov, dof){
+  CI_betas <- data.frame(beta=NA, lower_beta=NA, upper_beta=NA)
+  for(i in 1:length(coeff)){
+  beta <- rownames(coeff)[i]
+  lower_beta <- coeff[i] - sqrt(beta_cov[i])*qt(1-alpha/2,dof)
+  upper_beta <- coeff[i] + sqrt(beta_cov[i])*qt(1-alpha/2,dof)
+  CI_betas <-rbind(CI_betas, c(beta, lower_beta, upper_beta))}
+  return(CI_betas)}
+```
+### vii
+```{r}
+alpha= 0.05
+beta_cov <- diag(My_reg[[2]])
+dof <- My_reg[[7]]
+CI(alpha, coeff, beta_cov, dof)
+```
+We will be rejected H_0 when T_j in is absolute value is greater than qt(dof).
+So when truth comes out we reject the null hypothesis otherwise we do not reject.
+Also, can not see by p.value test when p.value greater than alpha does not reject the null hypothesis, otherwise rejected.
+rejecting null hypothesis of intercept and for R.D spend.
+```{r}
+abs(t_stat[[1]])>qt(0.975, dof)
+P.value <- My_reg[[4]]
+P.value
+```
+## question 4.c
+```{r}
+new_df <- read.csv("Startups_test.csv")
+new_df <- cbind("Intercept"=1,new_df)
+new_df$New_York <- ifelse(new_df$State == "New York", 1,0)
+new_df$Florida <- ifelse(new_df$State == "Florida", 1,0)
+real_profit <- new_df$Profit
+new_df<- new_df %>% select(-c("Profit","State"))
+new_df <- as.matrix(mutate(new_df,"exp_profit" = as.matrix(new_df)%*%coeff))
+new_df
+n <- length(real_profit)
+RMSE <- sqrt((1/n)*sum((new_df[,7] - real_profit)^2))
+RMSE
+```

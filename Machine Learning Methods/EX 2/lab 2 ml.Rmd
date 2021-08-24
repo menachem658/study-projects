@@ -1,0 +1,325 @@
+---
+title: "lab 2 ml"
+author: "Menachem Sokolik and Valeria Lerman"
+date: "25 5 2021"
+output:
+    rmarkdown::github_document:
+    theme: journal
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+```{r, cache=TRUE}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, results==hide, warning=FALSE, include=FALSE}
+library(magrittr)
+library(haven)
+library(Hmisc)
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+library(stargazer)
+library(plyr)
+library(ri)
+library(glmnet)
+```
+
+### mission 1,2
+```{r}
+load("CA_samp.Rdata")
+df <- data.frame(CA_samp)
+# Center y, X will be standardized in the modelling function
+```
+After clarifying with the practitioner, I did not normalize data following the question which is in the third part.
+### mission 5
+```{r}
+dim <- dim(df)
+cat(paste0("In our data frame there are ", dim[1], paste0(" rows"), paste0(" and ", dim[2], paste0(" columns."))))
+```
+The least squares estimates often have low bias but large variance.
+Prediction accuracy can sometimes be improved by shrinking or setting some coefficients to zero. 
+By doing so we sacrifice a little bit of bias to reduce the variance of the predicted values, and hence may improve the overall prediction accuracy.
+
+### mission 6-Subset your data into train and test
+```{r}
+set.seed(101) # Set Seed so that same sample can be reproduced in future also
+# Now Selecting 80% of data as sample from total 'n' rows of the data  
+sample <- sample.int(n = nrow(df), size = floor(.8*nrow(df)), replace = F)
+train <- df[sample, ]
+test  <- df[-sample, ]
+```
+
+### mission 7- Divide the response from the variables in the training and test sets
+
+creating the train and test sets
+
+```{r}
+p <- dim[2]
+train_x <- train[, -p]
+train_y <- train[, p]
+
+test_x <- test[, -p]
+test_y <- test[, p]
+```
+
+### mission 8a- Run Ridge and Lasso models
+```{r}
+fit.ridge <- glmnet(train_x, train_y, family="gaussian", alpha=0, standardize = TRUE)
+fit.lasso <- glmnet(train_x, train_y, family="gaussian", alpha=1, standardize = TRUE)
+```
+
+### mission 8b- Find which lambdas were used in the evaluation of each model
+```{r}
+lambdas.ridge <- fit.ridge$lambda
+lambdas.lasso <- fit.lasso$lambda
+
+df.ridge <- fit.ridge$df
+df.lasso <- fit.lasso$df
+```
+
+### mission 8c-  how many non-zero coefficients were computed for each lambda
+```{r}
+summary(df.ridge)
+summary(df.lasso)
+```
+The zero coefficient of Ridge model is 528, but the lasso model has no zero coefficient.
+
+### mission 8d- Use plot(model, xvar="lambda") to view a plot of the coefficients as a function of lambda
+```{r}
+plot(fit.lasso, xvar="lambda", main="Lasso model")
+plot(fit.ridge, xvar="lambda", main="Ridge model")
+```
+
+
+
+### mision 9a-b - Run cv.glmnet() for cross-validation and choose the number of folds for the CV
+for model ridge
+```{r}
+# ridge regression assumes the predictors are standardized and the response is centered!
+cv.fit.ridge <- cv.glmnet(as.matrix(train_x), as.matrix(train_y), alpha=0, standardize=TRUE, nfolds=5)
+print(paste0("lambda that minimizes the cv error is (for ridge):", cv.fit.ridge$lambda.min))
+```
+
+for model lasso
+```{r}
+cv.fit.lasso <- cv.glmnet(as.matrix(train_x), as.matrix(train_y), alpha=1, standardize=TRUE, nfolds=5)
+print(paste0("lambda that minimizes the cv error is (for lasso):", cv.fit.lasso$lambda.min))
+```
+
+### mision 9c
+```{r}
+plot(cv.fit.ridge, main="Ridge")
+plot(cv.fit.lasso, main="Lasso")
+```
+
+
+
+In the plot we can see for every lambda what rate of mean squared error. In these line we get the lambda that minimizes the mean squared error between in the range of one standard deviation.
+
+### mision 9d
+```{r}
+pred.lasso <- predict(cv.fit.lasso, newx= as.matrix(test_x), s=cv.fit.lasso$lambda.min)
+pred.ridge <- predict(cv.fit.ridge, newx= as.matrix(test_x), s=cv.fit.ridge$lambda.min)
+```
+
+### mision 9e
+```{r}
+# calculate MSE
+MSE.lasso <- mean((pred.lasso - test_y)^2)
+MSE.ridge <- mean((pred.ridge - test_y)^2)
+MSE.ridge > MSE.lasso
+
+print(paste0("The MSE of model lasso is: ", MSE.lasso ,paste0(" and MSE of model Ridge is: ", MSE.ridge)))
+```
+Lasso regression does pretty much the same thing; it is another way to limit the number of independent variables in the regression. The only difference is, it uses the absolute value. Now the thing is that because of the math, what it does is not just reduce the coefficients, Lasso actually removes the coefficients. the coefficients can actually go to zero, whereas in the Ridge regression, they do not go to zero, they become small, but they never vanish.
+I will prefer the Lasso model on the Ridge model because that I get a smaller MSE and also Ridge regression has one obvious disadvantage,
+The penalty $־»\sum_{j=1}^{n} \beta_{j}^2$ will shrink all of the coefficients toward zero, but it will not set any of them exactly to zero. 
+This may not be a problem for prediction accuracy, but can create a challenge in model interpretation.
+
+### mision 10
+```{r}
+pred_lasso <- predict(fit.lasso, newx= as.matrix(test_x))
+MSE_lasso <- data.frame(MSE=apply(pred_lasso, 2, function(x){mean((test_y - x)^2)}),Lambda=fit.lasso$lambda)
+pred_ridge <- predict(fit.ridge, newx= as.matrix(test_x))
+MSE_ridge <- data.frame(MSE=apply(pred_ridge, 2, function(x){mean((test_y - x)^2)}),Lambda=fit.ridge$lambda)
+```
+
+```{r}
+rownames(MSE_ridge)<-NULL
+head(MSE_ridge,20) 
+cat(paste("lambda that get minimum of Ridge MSE: ",paste(round(MSE_ridge[MSE_ridge$MSE==min(MSE_ridge$MSE),c(2)],6))))
+```
+
+```{r}
+rownames(MSE_lasso)<-NULL
+head(MSE_lasso,20) 
+cat(paste(" lambda that get minimum of Lasso MSE: ",paste(round(MSE_ridge[MSE_lasso$MSE==min(MSE_lasso$MSE),c(2)],6))))
+```
+
+```{r}
+ggplot()+geom_point(data=MSE_lasso,aes(x=log(Lambda),y=MSE,col="Lasso")) +geom_point(data=MSE_ridge,aes(x=log(Lambda),y=MSE,col="Ridge"))
+```
+
+As it can be seen from the results, a smaller value of lamda gives us a smaller MSE, before doing the cross validation. The explanation for this is, that the more variables we add to our model, we will increase the complexity  and decrease the MSE, and then there is a risk to over - fitting because of that (As lamda increases, more variables will be omitted, and the complexity of the model decreases). Hence, the purpose of doing the cross validation is to "overcome" the problem of over-fitting, by omitting variables every time. Therefore, after doing cross validation, we won't expect to get smaller MSE for smaller lamda, we will get a higher MSE for smaller lamda and the opposite.
+
+### mision 11
+```{r}
+fit_Ridge <- glmnet(train_x, train_y, family="gaussian", alpha=0, standardize = TRUE,lambda = seq(0,10,length=1000))
+pred_Ridge <- predict(fit_Ridge, newx= as.matrix(test_x))
+MSE_Ridge <- data.frame(MSE=apply(pred_Ridge, 2, function(x){mean((test_y - x)^2)}),Lambda=fit_Ridge$lambda)
+rownames(MSE_Ridge)<-NULL
+head(MSE_Ridge,20) 
+cat(paste("lambda that get minimum of Ridge MSE: ",paste(round(MSE_Ridge[MSE_Ridge$MSE==min(MSE_Ridge$MSE),c(2)],6))))
+
+
+fit_Lasso <- glmnet(train_x, train_y, family="gaussian", alpha=1, standardize = TRUE,lambda = seq(0,10,length=1000))
+pred_Lasso <- predict(fit_Lasso, newx= as.matrix(test_x))
+MSE_Lasso <- data.frame(MSE=apply(pred_Lasso, 2, function(x){mean((test_y - x)^2)}),Lambda=fit_Lasso$lambda)
+rownames(MSE_Lasso)<-NULL
+head(MSE_Lasso,20) 
+cat(paste(" lambda that get minimum of Lasso MSE: ",paste(round(MSE_Ridge[MSE_Lasso$MSE==min(MSE_Lasso$MSE),c(2)],6))))
+
+
+ggplot()+geom_point(data=MSE_Lasso,aes(x=log(Lambda),y=MSE,col="Lasso")) +geom_point(data=MSE_Ridge,aes(x=log(Lambda),y=MSE,col="Ridge"))
+```
+
+We can see that the results of mission 11 are exactly the same as the results we got in mission 10, even though we repeated the running of Ridge and Lasso model 1000 times.
+Note that we showed only 20 first observations because of lack of space.
+
+
+
+## PCR Analysis
+```{r}
+library(pls)
+```
+### mision 2
+```{r}
+#prepare dataset.
+train_dat <- data.frame(train_x)
+train_dat$y <- train_y
+test_dat <- data.frame(test_x)
+test_dat$y <- test_y
+
+```
+
+### mision 3a-c
+```{r}
+# run regression
+pcr.mod <- pcr(y~., data=train_dat, scale=TRUE, ncomp=10, validation="CV")
+summary(pcr.mod)
+```
+
+We chose n=10 in order so the complexity of our model won't be too high, but it will still give us enough information. This number is random, and in the next mission it can be seen that if a larger number is chosen. then the complexity of our model increases as the MSE value decreases.  
+
+```{r}
+# Plot solution paths:
+par(mfrow=c(2,2))
+# Plot the root mean squared error
+validationplot(pcr.mod)
+# Plot the cross validation MSE
+validationplot(pcr.mod, val.type="MSEP")
+# Plot the R2
+validationplot(pcr.mod, val.type = "R2")
+```
+
+
+
+We can see that the number of components with the lowest cross-validation error is 9 components as can be seen in the adjacent plots. We can also see that $R^2$ is the highest, which means that a model explains the most by him. explain 96.56% of the variance for 10 components.
+How much variance can be explained by that number of components? 95.49%  Notice that there is a tradeoff between the two.
+As will be seen below it is possible to increase the number of principal components well to reach a maximum reduction, but this thing which will increase the degree of complexity of the model.
+
+### mision 3d
+```{r}
+# predict
+pred <- predict(pcr.mod, newdata = data.frame(test_x), ncomp=9)
+# calculate MSE
+mean((pred-test_y)^2)
+```
+
+This is the MSE value we found.
+
+### mision 4
+```{r}
+# run regression
+pcr.mod1 <- pcr(y~., data=train_dat, scale=TRUE, ncomp=70, validation="CV")
+summary(pcr.mod1)
+
+# Plot solution paths:
+par(mfrow=c(2,2))
+# Plot the root mean squared error
+validationplot(pcr.mod1)
+# Plot the cross validation MSE
+validationplot(pcr.mod1, val.type="MSEP")
+# Plot the R2
+validationplot(pcr.mod1, val.type = "R2")
+
+# predict
+pred1 <- predict(pcr.mod1, newdata = data.frame(test_x), ncomp=44)
+# calculate MSE
+mean((pred1-test_y)^2)
+```
+
+## mission 3 - Elastic Net:
+
+### 3.1 - splitting the data
+We have already split the data into 80% train and 20% into test sets in mission $6$ of part one.
+
+### 3.2 - Are the datasets similar?
+```{r}
+train <- apply(train, 2, mean)
+test <- apply(test, 2, mean)
+newdata <- data.frame(train,test)
+head(newdata,20) 
+summary(newdata)
+```
+
+We can see that indeed the data are very similar between the training and the test, hoy says that we are indeed accustomed at random and that we are indeed close to predicting correctly.
+We also observed that the number of variables that would result in a minimum MSE of the training would also result in a minimum of the test, although approximately, we actually see that it is really close.
+
+### 3.3 - Train an Elastic Net model on our data
+```{r}
+alpha <- c()
+cv_mse <- c()
+test_mse <- c()
+df <- data.frame(alpha,cv_mse,test_mse)
+
+for (i in seq(0,1,0.1)){ #for every alpha value
+  res <- cv.glmnet(as.matrix(train_x),as.matrix(train_y), nfolds = 5,alpha=i) #using the cv.glmnet function to find the minimal mean cross validation error for every alpha
+  predres= predict(res, newx = as.matrix(test_x),s=res$lambda.min) #Predict on the test set
+  cv_mse <- min(res$cvm)
+  test_mse <- mean((test_y - predres)^2)
+  temp <- data.frame(alpha=i,cv_mse,test_mse) #creating a data frame for each alpha value
+  df <- rbind(df,temp)
+}
+df
+summary(df)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
